@@ -1,0 +1,80 @@
+I checked your full feature list, and I think it already covers the hackathon lifecycle really well.
+
+I found some additional features that may also be useful:
+
+### I. Team Setup
+
+**26. Team Working Agreement**
+The team agrees on communication rules, working hours, response time, decision-making, and expectations before starting.
+
+**27. Workload and Capacity View**
+Shows each member’s workload using effort and difficulty, not only the number of tasks. Someone may have fewer tasks, but each task can still be huge.
+
+**28. Equipment and Access Inventory**
+Tracks available laptops, cameras, microphones, GPUs, hardware, software accounts, repositories, and who is responsible for each one.
+
+### II. Ideation and Planning
+
+**29. MVP Scope Lock**
+Separates features into Must Have / Should Have / Could Have / Not Now, so the team does not build too much.
+
+**30. Assumption and Risk Register**
+Records important assumptions, technical risks, possible failures, owners, and how the team will test them.
+
+**31. Research and Evidence Board**
+Keeps competitor research, user problems, references, papers, and evidence supporting the project idea in one place.
+
+### III. Development and Integration
+
+**32. Task Dependency and Critical Path Map**
+Shows which tasks are blocked by other tasks and which unfinished task can delay the whole project.
+
+**33. Definition of Done**
+Every task must have a clear completion condition, reviewer, and evidence such as a PR, screenshot, metric, or demo video.
+
+**34. System Integration Map**
+Visually shows how the frontend, backend, AI models, APIs, hardware, and external services connect.
+
+**35. Interface Contract Registry**
+Stores API endpoints, input/output formats, events, sample payloads, versions, owners, and test status.
+
+**36. Experiment and Test Tracker**
+Records the model or method, code version, test data, parameters, accuracy, confidence, FPS, latency, result, and test files.
+
+**37. Build and Deployment Status**
+Shows the latest working build, deployment URL, environment status, failed builds, and who owns the fix.
+
+**38. Integration Checkpoints**
+Creates planned times when the team must connect and test all parts together, instead of waiting until the final hours.
+
+**39. Bug and Incident Timeline**
+Records important bugs, when they happened, their cause, how they were fixed, and whether they may happen again.
+
+**40. Canonical File Version**
+Clearly marks the latest version of every important document, design, model, dataset, presentation, and demo file.
+
+### IV. Demo and Pitch
+
+**41. Demo Runbook and Fallback Plan**
+Provides exact demo steps, who speaks or controls each part, possible failures, and a backup plan if the live demo breaks.
+
+**42. Rehearsal Mode**
+Times the pitch, records practice runs, collects team feedback, and tracks problems that must be fixed before presenting.
+
+**43. Judge Q&A Bank**
+Stores possible judge questions, short answers, technical evidence, business facts, and the person responsible for answering.
+
+**44. Final Submission Lock**
+Checks links, permissions, GitHub access, demo URLs, videos, files, backup copies, and submission requirements before the deadline.
+
+### V. Post-Event
+
+**45. Contribution and Credit Report**
+Creates a clear timeline of each member’s work, decisions, code, design, research, and demo contributions.
+
+**46. Next-Step Ownership Plan**
+If the team continues after the hackathon, it assigns owners, goals, and deadlines for the next 7 or 30 days.
+
+I think the most important additions are MVP Scope Lock, Workload View, Task Dependencies, Definition of Done, System Integration Map, Experiment Tracker, Integration Checkpoints, and Demo Fallback Plan.
+
+These features can help the team avoid overbuilding, integration problems, hidden workloads, and last-minute demo failures.
