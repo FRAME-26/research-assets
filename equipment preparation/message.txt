@@ -1,0 +1,38 @@
+Recommended Equipment Setup
+Equipment	Quantity	Purpose
+DJI Osmo Pocket 4	2	Main live camera feeds for speaker tracking, close-ups, and AI-directed switching
+GoPro MAX2 360	1	Records the entire scene in 8K 360 for virtual camera angles, reframing, and post-editing
+NVIDIA RTX Laptop/Desktop	1	Runs computer vision models, AI Director, OBS, tracking, and video processing
+DJI Mic System	1 set	Captures clear audio for active-speaker detection, transcription, and final video
+Fluid-Head Tripods	2	Holds both Pocket 4 cameras at stable professional angles
+Invisible Pole + Weighted Base	1	Places the GoPro MAX2 above the scene while hiding the pole in 360 footage
+Pocket 4 Tripod Adapters	2	Connects the Pocket 4 cameras to standard tripods
+Pocket 4 Battery Handles	2	Extends camera runtime during long recording sessions
+GoPro Enduro Batteries	2–3	Backup power for the MAX2 during long sessions
+USB-C 3.x Data Cables	2	Connects the Pocket 4 cameras to the computer in UVC webcam mode
+USB-C PD Charger	1	Powers and charges the cameras and accessories
+Powered USB 3.x Hub	1	Connects multiple cameras and devices without unstable USB power
+Pocket 4 microSD Cards	2 × 256 GB	Stores high-quality local backup recordings
+MAX2 microSD Card	1 × 512 GB or 1 TB	Stores high-bitrate 8K 360 footage
+Fast USB-C Card Reader	1	Transfers large Pocket 4 and MAX2 files to the computer
+External NVMe SSD	1 × 2 TB	Stores recordings, 360 footage, AI outputs, and final edits
+Dedicated Wi-Fi 6 Router	1	Provides a stable local network for the dashboard and remote controls
+Gigabit Ethernet Cable	1–2	Gives the main computer a stable network connection
+LED Video Lights	2	Improves camera quality and computer vision accuracy in low light
+Extension Cord and Surge Protector	1–2	Powers the complete production setup safely
+Monitoring Headphones	1	Checks audio quality during recording
+Protective Camera Cases	2–3	Protects the cameras and lenses during travel
+Recommended Camera Roles
+Camera	Role
+DJI Pocket 4 #1	Main speaker tracking and medium/close-up shots
+DJI Pocket 4 #2	Second speaker, side angle, presentation, or reaction shots
+GoPro MAX2	Full 360 safety recording and AI-generated virtual camera angles
+Recommended Workflow
+Stage	Workflow
+Live production	Pocket 4 cameras → USB-C UVC → Computer → AI Director → OBS
+Audio processing	DJI Mic → Computer → Active-speaker detection and transcription
+360 recording	GoPro MAX2 → Local 8K recording on microSD
+Post-production	MAX2 footage → AI tracking and reframing → Automatic highlights and final edit
+Final output	OBS recording + Pocket 4 files + MAX2 virtual shots + subtitles and social clips
+
+Important: The Pocket 4 cameras should be used for real-time AI input. The GoPro MAX2 should mainly record the full scene for post-production because its 360 footage is ideal for creating virtual camera angles after the event.
