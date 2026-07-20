@@ -1,0 +1,837 @@
+AI PRODUCTION DIRECTOR
+TEAM UPDATE, CURRENT ARCHITECTURE, AND NEXT STEPS
+Date: July 12, 2026
+
+Purpose
+This document summarizes everything we discussed today, what has changed in the project, what is already working, what still needs to be solved, and what we should build next.
+
+======================================================================
+1. CURRENT PRODUCT DIRECTION
+======================================================================
+
+We should describe the project as an AI Production Director or AI Production System.
+
+The core idea is:
+
+Our AI gives a solo creator the production intelligence of an entire camera crew.
+
+The system should help with the full production workflow:
+
+1. Help the user place the cameras
+2. Understand the room and the people inside it
+3. Detect and track faces and people
+4. Identify the active speaker
+5. Prepare the next shot
+6. Check whether the shot is framed and stable
+7. Control OBS and switch the live output
+8. Keep a human operator in control through manual override
+9. Optionally accept high-level natural-language commands through an AI agent
+
+This is no longer just an automatic camera switcher.
+
+It is an AI system that plans, tracks, frames, verifies, and directs a live production.
+
+======================================================================
+2. WHAT WE CONFIRMED TODAY
+======================================================================
+
+A. DJI Pocket 4 can be used as a wired webcam source
+
+The Pocket can connect to a computer through USB and appear as a webcam source in OBS.
+
+Basic video path:
+
+DJI Pocket 4
+-> USB webcam mode
+-> OBS video source
+-> live preview, recording, and streaming
+
+This means the camera feed can enter the production system in real time.
+
+B. OBS can be controlled externally
+
+OBS can be controlled from our own backend through OBS WebSocket.
+
+Our software can send commands such as:
+
+- Switch scenes
+- Show or hide sources
+- Change source crop, scale, and position
+- Start recording
+- Stop recording
+- Select a safe wide shot
+- Change production mode
+- Trigger transitions
+
+Basic control path:
+
+AI decision
+-> Director engine
+-> Safety checks
+-> OBS WebSocket
+-> OBS changes the live output
+
+C. An OBS MCP server already exists
+
+We found an existing OBS MCP server.
+
+This can be useful for high-level agent commands such as:
+
+- Start recording
+- Stop recording
+- Use the wide shot
+- Switch to automatic mode
+- Lock the current camera
+- Switch to assisted mode
+
+However, the MCP or LLM agent should not control every real-time camera cut.
+
+The real-time loop must remain fast and deterministic:
+
+Fast loop:
+Computer vision + audio
+-> Director logic
+-> Safety rules
+-> OBS WebSocket
+
+Agent loop:
+User instruction
+-> AI agent
+-> MCP tools
+-> Production controls
+
+D. Our own face tracking is working
+
+The most important progress is that face tracking is already working on the webcam feed.
+
+This means we do not have to depend on DJI's built-in ActiveTrack.
+
+The new perception path is:
+
+Webcam feed
+-> Face detection
+-> Face tracking
+-> Target coordinates
+-> Framing decision
+
+The AI can already determine whether a face is:
+
+- Left of the frame center
+- Right of the frame center
+- Too high
+- Too low
+- Too close
+- Too far
+- Lost
+- One of several visible people
+
+This is the foundation for both virtual tracking and physical camera control.
+
+======================================================================
+3. THE NEW SYSTEM ARCHITECTURE
+======================================================================
+
+Complete real-time flow:
+
+DJI Pocket 4 / GoPro / Webcam / Microphones
+-> Video and audio capture
+-> Face and person detection
+-> Persistent person tracking
+-> Active-speaker detection
+-> Scene-state understanding
+-> AI Director Engine
+-> Framing, continuity, and safety rules
+-> Virtual or physical camera movement
+-> Moving -> Settling -> Ready
+-> OBS WebSocket
+-> Live program output and recording
+-> Custom operator dashboard
+
+Agent layer:
+
+User natural-language command
+-> AI agent
+-> MCP
+-> Production tools
+
+The user should mainly see our own interface.
+
+OBS should remain the reliable media engine in the background.
+
+======================================================================
+4. TWO MAIN PRODUCT MODES
+======================================================================
+
+A. SETUP MODE
+
+Before production begins, the AI helps the user decide where to place each camera.
+
+The human still physically places the camera, but the AI analyzes the live feed and gives guidance.
+
+The AI should evaluate:
+
+- Whether every person is visible
+- Whether someone is blocked
+- Camera coverage
+- Background quality
+- Lighting and backlight
+- Camera distance
+- Headroom
+- Available tracking space
+- Safe movement area
+- Whether the angle is useful for a close-up, reaction shot, or wide shot
+
+Example instructions:
+
+- Move the camera slightly left
+- Raise the camera
+- Tilt it down
+- Person B is partially blocked
+- There is too much backlight
+- Move the camera farther away
+- This position gives good two-person coverage
+- Camera A is suitable for close-ups
+- Camera B is suitable for reaction shots
+
+For the first version, this does not need to be a full 3D room reconstruction.
+
+A practical hackathon MVP can score:
+
+Visibility
++ Coverage
++ Composition
++ Lighting
++ Occlusion
++ Background quality
+
+Later, we can add a guided room scan using several camera views or the GoPro MAX2.
+
+B. LIVE DIRECTOR MODE
+
+During the live production, the AI:
+
+- Tracks people
+- Detects the active speaker
+- Selects a candidate shot
+- Frames the subject
+- Checks stability
+- Waits until the shot is ready
+- Sends the final cut command to OBS
+
+Example:
+
+Person A is speaking
+-> Camera A remains live
+
+Person B starts speaking
+-> AI detects Person B
+-> AI prepares Camera B
+-> Status becomes MOVING
+-> Framing approaches the target
+-> Status becomes SETTLING
+-> Shot becomes stable
+-> Status becomes READY
+-> AI sends the OBS command
+-> OBS cuts to Camera B
+
+If confidence is low:
+
+-> Use the safe wide shot
+
+If the subject is lost:
+
+-> Hold briefly
+-> Then return to the safe wide shot
+
+======================================================================
+5. VIRTUAL TRACKING VS. PHYSICAL CAMERA MOVEMENT
+======================================================================
+
+A. VIRTUAL TRACKING
+
+The physical camera does not move.
+
+The AI uses a wide camera feed and changes the crop, zoom, and position inside OBS.
+
+Flow:
+
+Wide camera feed
+-> Face tracking
+-> Target position
+-> Virtual crop and zoom
+-> Smooth framing
+-> Shot readiness
+-> OBS cut
+
+One physical camera can create several virtual shots:
+
+- POCKET_WIDE
+- POCKET_PERSON_A
+- POCKET_PERSON_B
+- POCKET_TWO_SHOT
+
+This is the safest and most reliable MVP path.
+
+It also makes the system compatible with normal webcams and other cameras, not only DJI devices.
+
+B. PHYSICAL GIMBAL MOVEMENT
+
+The stronger version physically moves the Pocket gimbal.
+
+Flow:
+
+Face tracking
+-> Position error
+-> Pan and tilt command
+-> Pocket gimbal movement
+-> New video frame
+-> AI correction
+-> Stable framing
+-> OBS cut
+
+Example control logic:
+
+Face is left of center
+-> Pan left slowly
+
+Face is right of center
+-> Pan right slowly
+
+Face is too high
+-> Tilt up
+
+Face enters the center dead zone
+-> Stop moving
+
+Camera is still shaking
+-> Do not cut
+
+Camera becomes stable
+-> Mark shot as READY
+
+This creates a closed-loop control system.
+
+The AI does not need a perfect map of the room.
+
+It can continuously observe the video, measure the error, move the camera, and correct the framing.
+
+======================================================================
+6. THE PHYSICAL JOYSTICK QUESTION
+======================================================================
+
+Jeboy was referring to the physical 5D joystick on the camera body, not only the joystick inside the DJI Mimo app.
+
+The important question is:
+
+What signal or command makes the Pocket's physical joystick move the gimbal?
+
+Possible control paths:
+
+Option 1: Official or internal software command
+
+AI
+-> Pocket control protocol
+-> Gimbal controller
+
+This is the best long-term solution.
+
+We need to investigate:
+
+- Official DJI SDK support
+- USB control commands
+- Wi-Fi control commands
+- Bluetooth control commands
+- Internal DJI handheld-camera protocol
+- Whether webcam mode and external control can work at the same time
+
+Option 2: Reverse-engineer DJI Mimo
+
+The Android DJI Mimo APK can be decompiled and inspected.
+
+The goal is not to copy the whole app.
+
+The goal is to find the remote-control command path:
+
+Mimo joystick UI
+-> Touch input
+-> Yaw and pitch values
+-> Command object
+-> Packet encoder
+-> Wi-Fi or Bluetooth transport
+-> Pocket gimbal
+
+Useful search terms:
+
+- gimbal
+- joystick
+- controlStick
+- pan
+- tilt
+- yaw
+- pitch
+- velocity
+- angle
+- sendCommand
+- sendPacket
+- handheld
+- pocket
+
+Possible difficulties:
+
+- Code obfuscation
+- Native C/C++ libraries
+- Encrypted communication
+- Session authentication
+- Firmware-side logic
+- Device pairing requirements
+
+Option 3: Physical servo actuator
+
+A small ESP32 or Arduino system could physically move the camera's joystick.
+
+Flow:
+
+Laptop AI
+-> ESP32
+-> X/Y servos
+-> Physical joystick
+-> Pocket gimbal
+
+This could be a very visible hackathon prototype, but it may be mechanically unstable and should be treated as a fallback or stretch goal.
+
+Option 4: Virtual tracking fallback
+
+If physical control is not ready:
+
+AI tracking
+-> OBS crop, zoom, and pan
+
+This protects the core demo.
+
+======================================================================
+7. WHAT CHANGED IN OUR STRATEGY
+======================================================================
+
+Previous direction:
+
+- Depend on DJI built-in face tracking
+- Treat Pocket control as required
+- Use OBS mainly as a camera switcher
+
+New direction:
+
+- Use our own AI face and person tracking
+- Treat physical Pocket control as an advanced layer
+- Use virtual framing as the reliable core
+- Use OBS as the background media engine
+- Make the AI Director the main innovation
+- Add Setup Mode for camera-placement guidance
+- Use MCP only for high-level agent operations
+- Keep the real-time loop deterministic and low-latency
+
+This change makes the project stronger and less dependent on one camera model.
+
+======================================================================
+8. WHAT THE CUSTOM DASHBOARD SHOULD SHOW
+======================================================================
+
+The user should see an AI-native production interface, not a raw OBS window.
+
+Suggested dashboard:
+
+- Camera previews
+- Current program output
+- Active speaker
+- Current live shot
+- Next candidate shot
+- Confidence score
+- Decision reason
+- Tracking status
+- Moving / Settling / Ready
+- Auto mode
+- Assisted mode
+- Manual mode
+- Manual override
+- Emergency stop
+- Decision timeline
+- Recording status
+- Safe-wide control
+
+Example decision display:
+
+Active speaker: Person B
+Selected shot: Camera B
+Confidence: 0.91
+Status: READY
+Reason: New speaker detected, framing is stable, and the face is unobstructed
+
+======================================================================
+9. CORE MVP
+======================================================================
+
+The core MVP must work without depending on physical gimbal control.
+
+Required input:
+
+- One webcam or Pocket live feed
+- One second angle or safe-wide feed
+- Microphone audio
+
+Required perception:
+
+- Face detection
+- Person tracking
+- Active-speaker detection
+
+Required intelligence:
+
+- Active speaker
+- Recommended shot
+- Confidence score
+- Decision reason
+
+Required framing:
+
+- Virtual crop
+- Virtual zoom
+- Virtual pan
+- Dead zone
+- Smoothing
+
+Required director rules:
+
+- Minimum shot duration
+- Never cut while the shot is moving
+- Never cut while the shot is unstable
+- Low confidence -> safe wide
+- Lost subject -> safe wide
+- Manual override
+- Emergency stop
+
+Required output:
+
+- Automatic OBS scene switching
+- Recording
+- Program output
+
+Required interface:
+
+- Camera previews
+- Program output
+- Active speaker
+- Selected shot
+- Confidence
+- Reason
+- Moving / Settling / Ready
+- Auto / Assisted / Manual
+- Timeline
+
+======================================================================
+10. STRETCH GOALS
+======================================================================
+
+Only after the core loop works:
+
+- Physical Pocket gimbal control
+- DJI Mimo protocol research
+- Servo joystick prototype
+- Full room scan
+- 3D spatial map
+- GoPro MAX2 virtual angles
+- AI agent through MCP
+- Natural-language production control
+- Automatic highlight generation
+- Post-production editing
+- Multi-camera identity matching
+
+======================================================================
+11. CURRENT STATUS
+======================================================================
+
+Current team status:
+
+Pocket -> OBS wired webcam path:
+Demonstrated and likely usable
+
+OBS external control:
+Technically feasible through OBS WebSocket
+
+OBS MCP:
+Existing server found
+
+Face tracking:
+Working in our current test
+
+Virtual framing:
+Next implementation step
+
+Active-speaker integration:
+Not yet complete
+
+Director rules:
+Not yet complete
+
+Physical Pocket movement:
+Unresolved
+
+Mimo protocol research:
+Not started or not complete
+
+Setup Mode:
+Designed conceptually
+
+Custom dashboard:
+Planned
+
+Full autonomous live demo:
+Not complete yet
+
+======================================================================
+12. MAIN UNSOLVED PROBLEMS
+======================================================================
+
+1. Physical Pocket control
+
+How can our code send pan and tilt commands to the Pocket?
+
+2. Webcam mode plus control
+
+Can the Pocket remain connected to the computer in webcam mode while also receiving movement commands from another device or protocol?
+
+3. Webcam resolution and quality
+
+We need to verify:
+
+- Resolution
+- Frame rate
+- Latency
+- Compression
+- Whether virtual crop quality is good enough
+
+4. Stable tracking identity
+
+With multiple people, Person A and Person B must keep consistent IDs.
+
+5. Active-speaker accuracy
+
+Audio-only detection may fail with:
+
+- Echo
+- Overlapping speech
+- Laughter
+- Background noise
+
+Audio and mouth-motion fusion may be required.
+
+6. Framing stability
+
+We need:
+
+- Dead zone
+- Smoothing
+- Speed limits
+- Settling timer
+- Stability score
+- Lost-target behavior
+
+7. Setup Mode scope
+
+The first version must remain simple.
+
+Do not let room scanning delay the core directing loop.
+
+8. MCP reliability
+
+The existing OBS MCP server must be reviewed before depending on it.
+
+The real-time directing system should not depend on MCP.
+
+======================================================================
+13. NEXT ACTIONS
+======================================================================
+
+Priority 1: Connect face tracking to OBS virtual framing
+
+- Get stable face-center coordinates
+- Calculate distance from frame center
+- Convert the error into crop and position changes
+- Add smoothing
+- Add a dead zone
+- Add a lost-face fallback
+
+Priority 2: Prove OBS control from our own backend
+
+- Create scenes: CAM_A, CAM_B, SAFE_WIDE, TWO_SHOT
+- Connect to OBS WebSocket
+- Switch scenes from code
+- Change source transform from code
+- Start and stop recording from code
+
+Priority 3: Add active-speaker detection
+
+- Begin with microphone activity
+- Connect the speaker result to a tracked person
+- Later add mouth-motion verification
+
+Priority 4: Build the Director Engine
+
+- Detect speaker changes
+- Select a candidate shot
+- Prepare framing
+- Wait for stability
+- Check minimum shot duration
+- Cut through OBS
+- Fall back to safe wide when uncertain
+
+Priority 5: Build a simple dashboard
+
+- Program output
+- Camera previews
+- Active speaker
+- Current and next shot
+- Confidence
+- Reason
+- Shot status
+- Manual override
+- Emergency stop
+- Decision timeline
+
+Priority 6: Research physical Pocket control in parallel
+
+- Check official control options
+- Test webcam mode plus phone control
+- Inspect DJI Mimo Android APK
+- Trace gimbal-control commands
+- Inspect native libraries
+- Test whether commands can be reproduced safely
+
+Priority 7: Add Setup Mode
+
+- Person visibility score
+- Coverage score
+- Composition score
+- Lighting score
+- Occlusion score
+- Simple placement guidance
+
+Priority 8: Add MCP agent controls
+
+Only after the real-time core works:
+
+- Start session
+- Stop session
+- Start recording
+- Stop recording
+- Change mode
+- Lock camera
+- Use safe wide
+- Emergency stop
+
+======================================================================
+14. BEST HACKATHON DEMO
+======================================================================
+
+Suggested demo sequence:
+
+1. Setup Mode analyzes the room and recommends a camera position
+
+2. A two-person conversation begins
+
+3. Person A speaks
+   -> Camera A remains live
+
+4. Person B starts speaking
+   -> AI detects Person B
+   -> AI prepares Camera B or a virtual close-up
+   -> Status changes to MOVING
+
+5. Framing approaches the target
+   -> Status changes to SETTLING
+
+6. The shot becomes stable
+   -> Status changes to READY
+
+7. The AI sends an OBS command
+   -> OBS cuts to Camera B
+
+8. If both people speak or confidence drops
+   -> AI selects the safe-wide shot
+
+9. The dashboard shows:
+   - Active speaker
+   - Selected shot
+   - Confidence
+   - Reason
+   - Shot status
+   - Decision timeline
+
+10. Optional final command:
+   "Use the safe wide shot"
+   -> AI agent sends a high-level MCP command
+
+The magic moment is not:
+
+"The AI switches OBS scenes."
+
+The magic moment is:
+
+"The AI sees who is speaking, prepares the next shot, waits until it is framed and stable, and only then cuts to it."
+
+If physical gimbal control works, the stronger version is:
+
+"The AI sees the subject move, physically turns the real camera, verifies the shot, and directs the live output."
+
+======================================================================
+15. PRODUCT POSITIONING
+======================================================================
+
+Simple one-line description:
+
+Our AI Production Director helps users position their cameras, tracks people and active speakers, prepares and verifies shots, and controls OBS to direct a live production automatically.
+
+Stronger pitch:
+
+Our AI gives a solo creator the production intelligence of an entire camera crew.
+
+Technical positioning:
+
+This is not only an OBS controller.
+This is not only face tracking.
+This is not only active-speaker switching.
+This is not only an AI chatbot.
+
+It is a closed-loop AI production system:
+
+Perception
+-> Scene understanding
+-> Framing decision
+-> Camera preparation
+-> Shot verification
+-> Live production control
+-> Human override
+
+======================================================================
+16. FINAL TEAM DECISION
+======================================================================
+
+The safest and strongest strategy is:
+
+1. Build the complete virtual-framing and OBS-directing loop first
+2. Keep physical Pocket control as a parallel research track
+3. Do not wait for DJI gimbal control before building the demo
+4. Do not rebuild OBS
+5. Use OBS as the hidden media engine
+6. Make our AI Director and custom interface the product
+7. Add MCP only after the real-time core is reliable
+8. Focus on one perfect autonomous directing moment rather than many unfinished features
+
+The project succeeds if the core loop works reliably:
+
+Camera and microphone
+-> AI understands the scene
+-> AI prepares the next shot
+-> AI verifies stability
+-> AI controls OBS
+-> Human can override at any time
+
+That is the version with the strongest technical depth, clearest demo, and best chance of becoming a real product.
