@@ -1,0 +1,136 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Live Demo Area (Physical World)                    │
+│                                                                             │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐                                │
+│   │ Pocket 4 │  │ Pocket 4 │  │ Phone /  │                                │
+│   │ (Main)   │  │ (Aux)    │  │ Wide     │                                │
+│   └────┬─────┘  └────┬─────┘  └────┬─────┘                                │
+│        │USB-C(UVC)   │USB-C(UVC)   │USB-C(UVC)                             │
+│        └─────────────┼─────────────┘                                       │
+│                      ▼                                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                       │
+                       │ Raw video frames (1920x1080, 30fps)
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Local Laptop (Nero / Jeboy's Machine)                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  1. Camera Access Layer                                             │   │
+│  │     - cv2.VideoCapture(0/1/2) to read 3 USB cameras                │   │
+│  │     - Timestamp + frame index for each frame                       │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  2. Lightweight Vision Inference (CPU-based YOLOv8n)               │   │
+│  │     - Run detection independently for each camera                  │   │
+│  │     - Output: face bbox + confidence (face_conf) + pose            │   │
+│  │     - Frame rate: 10-15fps (CPU-friendly)                          │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               │ feature JSON (a few hundred bytes)          │
+│                               │ {cam_1:{face_conf:0.92, bbox:[...]}, ...}  │
+│                               │                                             │
+│                               │ HTTP POST /api/ingest                       │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  3. Local Communication Client (httpx / requests)                  │   │
+│  │     - Package features → send to Linux server                      │   │
+│  │     - Receive decision commands → pass to OBS controller           │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               │ ① WebSocket connection (receiving switch cmds)│
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  4. OBS Control Bridge                                              │   │
+│  │     - Receive from Linux: {action:"switch_to", cam_id:2, reason:"..."}│   │
+│  │     - Call obs-websocket-py → OBS WebSocket API                    │   │
+│  │     - Execute SetCurrentProgramScene("Camera_2")                   │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  5. OBS Studio (with obs-websocket plugin)                         │   │
+│  │     - Receive 3 camera sources (scenes: Cam1/Cam2/Cam3)            │   │
+│  │     - Switch Program output according to commands                  │   │
+│  │     - Output to: projector / screen recording / live stream        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  6. Gradio Control Panel (Jeboy in charge)                         │   │
+│  │     - Display 3 preview feeds                                       │   │
+│  │     - Display current Program feed                                  │   │
+│  │     - Display AI explanation text (from Linux)                     │   │
+│  │     - 3 manual Override buttons (Cam1/Cam2/Cam3)                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                       │                          ▲
+                       │ HTTP POST feature JSON   │ WebSocket decision commands
+                       │ (every 100ms)            │ (every decision cycle)
+                       ▼                          │
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               Linux Server (No GPU · Pure CPU · Ceaser in charge)          │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  1. FastAPI Endpoint (/api/ingest)                                 │   │
+│  │     - Receive feature JSON from Nero                               │   │
+│  │     - Parse and validate data format                               │   │
+│  │     - Store in memory cache (last 10 frames history)               │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  2. First Moat: Health Check and Watchdog                          │   │
+│  │     - Check heartbeat for each camera (last_heartbeat)             │   │
+│  │     - No update for 3 sec → mark camera as "DEAD"                  │   │
+│  │     - DEAD cameras always get 0 score in scoring                   │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  3. MCDA Scoring Engine (Ceaser's core algorithm)                  │   │
+│  │     Input: features from 3 cameras (face_conf, audio_level, pose, health)│   │
+│  │     Steps:                                                         │   │
+│  │       a) Gate filtering (blurry/low confidence/offline → reject)   │   │
+│  │       b) Normalization (Min-Max, map to [0,1])                     │   │
+│  │       c) Utility mapping (Sigmoid nonlinear)                       │   │
+│  │       d) Weighted sum (weights loaded from .env)                   │   │
+│  │       e) Context modulation (dynamic weight adjustment on events like "applause") │   │
+│  │       f) Switching penalty (current camera gets bonus, new camera must exceed threshold) │   │
+│  │     Output: final score for each candidate camera                  │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  4. Decision State Machine (transitions library)                   │   │
+│  │     States: Standby → Recording → Holding → Degraded               │   │
+│  │     Rules:                                                         │   │
+│  │       - If highest score > current score + threshold → switch      │   │
+│  │       - Cooldown (minimum hold 3 sec)                              │   │
+│  │       - Applause/laughter lockout (no switches within 2.5 sec)    │   │
+│  │     Output: decision command {action, cam_id, reason}              │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  5. Second Moat: Smart Degradation Pool (Circuit Breaker)          │   │
+│  │     Three modes:                                                   │   │
+│  │       - S mode (full): full MCDA + all features                    │   │
+│  │       - A mode (light): only face_conf + audio, drop pose          │   │
+│  │       - B mode (fallback): carousel (Cam1→Cam2→Cam3, switch every 4s) │   │
+│  │     Trigger: inference latency >300ms or empty data for 3 consecutive frames │   │
+│  └────────────────────────────┬────────────────────────────────────────┘   │
+│                               │                                             │
+│                               ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  6. WebSocket Push Service (push commands to local laptop)         │   │
+│  │     - Check if decision changed every 100ms                        │   │
+│  │     - If changed → push via WebSocket:                             │   │
+│  │       {                                                            │   │
+│  │         "action": "switch_to",                                     │   │
+│  │         "cam_id": 2,                                               │   │
+│  │         "reason": "Cam2 speaker confidence highest (0.92 vs Cam1 0.45)" │   │
+│  │       }                                                            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
