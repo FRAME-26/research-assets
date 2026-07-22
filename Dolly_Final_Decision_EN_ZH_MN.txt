@@ -1,0 +1,1488 @@
+DOLLY — FINAL MASTER DECISION
+AdventureX 2026 | Team FRAME-26
+Version locked: 22 July 2026
+
+This document is the single source of truth for the Dolly hackathon build. If an older chat, README, diagram, or task list conflicts with this file, follow this file.
+
+======================================================================
+PART 1 — ENGLISH
+======================================================================
+
+1. FINAL PROJECT DECISION
+
+Team name: FRAME-26
+Product name: Dolly
+Team: Nero, Ceaser, Jeboy
+Repository: dolly-ai-director
+
+One-sentence product definition:
+Dolly is an autonomous AI production crew that watches multiple cameras, follows the subject, selects and switches to the best shot live, accepts simple director commands, explains its decisions, and turns the recording into a publish-ready video.
+
+The final product is NOT only an editor, camera switcher, voice assistant, or dashboard. The competitive core is the complete closed loop:
+
+Multiple cameras -> visual/audio perception -> shot scoring -> stable directing decision -> camera/OBS action -> decision memory -> automatic final video.
+
+The three-person team is locked. Do not add a fourth person unless all three members agree that a missing critical skill cannot be covered.
+
+2. DEMO PROMISE
+
+The final live demo must show this complete story:
+
+1) Three camera feeds are visible in Dolly and OBS.
+2) A presenter begins speaking.
+3) Dolly detects the presenter and chooses a good medium/close shot.
+4) The presenter moves; the tracking camera follows them.
+5) A second person joins; Dolly changes to a wide or two-person shot.
+6) A user says a command such as “Dolly, wide shot” or “Dolly, mark this.”
+7) Dolly displays the selected camera, scores, confidence, and decision reason.
+8) Dolly records all switches, commands, transcript timestamps, and highlight markers.
+9) When recording stops, Dolly creates a captioned 30–60 second highlight video.
+
+If every item above works, the MVP is complete. Extra features are secondary.
+
+3. FINAL HARDWARE PLAN
+
+Primary three-camera MVP:
+
+- Insta360 Link 2 Pro: moving/tracking presenter camera; native AI tracking and presets.
+- Insta360 Ace Pro 2 #1: fixed wide/failsafe shot.
+- Insta360 Ace Pro 2 #2: fixed side, guest, or product angle.
+- Insta360 Mic Pro: main microphone for program audio, voice commands, VAD, transcript, and highlights.
+- Windows laptop: runs OBS, local FastAPI, perception, decision engine, dashboard, control bridges, logging, and editing trigger.
+- Powered USB hub and USB-C 3.x cables: camera connectivity. Prefer separate high-bandwidth USB controllers/ports when possible.
+- Tripods/mounts and continuous power: fixed and repeatable camera placement.
+
+Optional/backup hardware:
+
+- Luna Ultra: use as a hero/showcase feed only if it provides a stable live input without hurting the three-camera system.
+- DJI Pocket 4: backup camera; do not put it in the critical path unless its live capture/control is already stable.
+- Additional camera: only after the full three-camera loop works reliably.
+
+Camera placement:
+
+- Link 2 Pro: front or front-side, medium distance, free space for tracking.
+- Ace Pro 2 wide: centered, captures the entire demo area, never moved during the demo.
+- Ace Pro 2 side: 30–45 degree angle for visual variety, guest, or product close-up.
+
+Hardware acceptance test:
+
+- Three feeds plus Mic Pro run continuously for at least 20–30 minutes.
+- No repeated disconnect, overheating shutdown, unstable device renaming, or unacceptable dropped frames.
+- The wide camera always remains available as the failsafe.
+
+If the laptop or USB bus cannot support three stable cameras, use two live cameras plus one prerecorded/simulated input. Reliability is more important than camera count.
+
+4. FINAL SYSTEM ARCHITECTURE
+
+All real-time components run locally on the same Windows laptop as OBS:
+
+Camera feeds -> OBS Studio -> low-resolution frame sampler -> YOLO/face features -> Ceaser’s scoring and state machine -> Nero’s local orchestrator -> direct OBS WebSocket -> live scene change.
+
+In parallel:
+
+Mic Pro -> VAD/Whisper -> voice command and transcript events -> orchestrator.
+
+The orchestrator also sends approved tracking/preset/PTZ commands to Link 2 Pro, publishes real-time state to the dashboard, and writes the decision timeline.
+
+After recording:
+
+OBS recording + transcript + decision/highlight timeline -> Remotion/FFmpeg -> horizontal full video and vertical highlight.
+
+Linux server decision:
+
+- The Linux server is NOT in the live critical path.
+- It may host a public dashboard, store backup logs/session metadata, expose a non-critical public API, or run an optional render job.
+- Internet or Wi-Fi failure must not stop automatic directing, OBS switching, recording, dashboard control, or the local demo.
+
+5. FINAL TECHNOLOGY DECISIONS
+
+Core video engine:
+
+- OBS Studio for camera ingest, scenes, transitions, program audio, and recording.
+- Built-in OBS WebSocket for deterministic live control.
+- Direct Python WebSocket/OBS client for real-time switching.
+
+Perception:
+
+- Primary: Ultralytics yolo26n-pose for person detection, boxes, pose, tracking signals, body framing, movement, and occlusion.
+- Fallback: YOLOv8n/YOLOv8n-pose only if the primary model has installation, compatibility, or performance problems.
+- OpenCV for frame capture, resize, timestamps, motion/stability metrics, and image processing.
+- Optional MediaPipe Face Landmarker for face size, head direction, face visibility, and mouth movement.
+
+Audio and voice:
+
+- Insta360 Mic Pro as the only program microphone unless a backup is necessary.
+- Silero VAD or WebRTC VAD for speech activity.
+- Faster-Whisper Tiny or Base for local transcription.
+- A deterministic keyword/intent parser for demo commands; no LLM is required for basic commands.
+
+Backend and real-time integration:
+
+- Python FastAPI.
+- Pydantic models as the shared interface contract.
+- WebSocket for dashboard state and events.
+- JSONL during rapid development; SQLite if queryable sessions are needed.
+
+Dashboard:
+
+- Primary: React + Vite + Tailwind for a polished judge-facing interface.
+- Gradio is only a fast fallback if the React dashboard is not ready.
+
+Post-production:
+
+- Remotion for templates, captions, title cards, lower thirds, branding, landscape/vertical layouts, and final render composition.
+- FFmpeg for probing, clipping, transcoding, audio normalization, and fallback rendering.
+
+Optional showcase:
+
+- OBS MCP may be used for one natural-language/agent demo, but never for frame-by-frame automatic switching.
+
+Explicitly rejected or deferred:
+
+- Insta360 ProCameraApi: not used because it targets Insta360 Pro, Pro 2, and Titan rather than our consumer/link cameras.
+- Cloud LLM in the live decision loop: too slow and network-dependent.
+- Linux server as the live brain: rejected because OBS and cameras are local.
+- Training a new large model: rejected for hackathon scope.
+- Face recognition/identity system: deferred; not needed for the core demo.
+- Full mobile application, user accounts, payments, team collaboration platform, or complex cloud architecture: out of scope.
+- More than three critical live cameras before the complete loop works: deferred.
+
+6. CAMERA CONTROL AND VOICE CONTROL DECISION
+
+There are two separate control layers.
+
+A) Native Insta360 device control
+
+- Use Link Controller’s native AI tracking, auto-framing, presets, manual joystick, and supported gesture controls.
+- Native camera voice commands may still control device functions such as start/stop recording where supported.
+
+B) Dolly director control
+
+Dolly should support:
+
+- Follow me / stop following.
+- Pan left/right and tilt up/down.
+- Center.
+- Zoom in/out.
+- Preset 1/2/3.
+- Wide shot / presenter shot / camera one-two-three.
+- Start/stop recording.
+- Mark highlight.
+- Autopilot/manual mode.
+
+Control priority:
+
+1) Official Insta360 control or supported Link Controller integration.
+2) Native Link tracking and saved presets.
+3) Tested local Link Controller bridge/CLI/WebSocket.
+4) Manual hotkeys/joystick as the final fallback.
+
+A PowerShell or BAT file is only a wrapper that sends a command to a real control layer. It is not itself a camera API. PTZ automation must not block the main demo: native tracking plus presets is an acceptable MVP.
+
+7. AI DIRECTOR DECISION LOGIC
+
+AI input settings:
+
+- Program recording target: 1080p, 30 fps.
+- AI sample input: approximately 640x360.
+- Analyze each camera at approximately 3–5 fps, adjusted to laptop performance.
+- Do not run full-resolution inference on every frame.
+
+Per-camera features:
+
+- Number of people.
+- Primary subject bounding box and tracking ID.
+- Face/body visibility.
+- Subject size and shot type: close, medium, or wide.
+- Centering and rule-of-thirds position.
+- Body/face cutoff penalty.
+- Motion and stability.
+- Occlusion.
+- Head direction and mouth movement when face analysis is enabled.
+- Whether the shot matches the current speaking/movement context.
+
+Initial MCDA score weights:
+
+- Subject visible: 25%.
+- Face/body framing quality: 20%.
+- Centering/composition: 15%.
+- Face visibility: 15%.
+- Stability: 10%.
+- Movement/context fit: 10%.
+- Angle diversity: 5%.
+
+The weights are configuration, not hard-coded truth. Tune them using recorded test scenes.
+
+State-machine rules:
+
+- Do not switch just because another camera wins one frame.
+- A candidate should remain better for about 1–2 seconds.
+- It must beat the current camera by a defined margin.
+- After a cut, apply a 3–5 second cooldown.
+- Avoid returning immediately to the previous shot.
+- If confidence is low, a feed fails, or the subject disappears, switch to the wide failsafe.
+- Manual override disables automatic switching until autopilot is explicitly restored.
+- Voice commands temporarily override scoring, then return to autopilot after a defined timeout or command.
+- Limit unnecessary cuts and preserve a natural production rhythm.
+
+Every decision must include:
+
+- selected_camera
+- confidence
+- per-camera scores
+- reason
+- timestamp
+- operating mode
+- source of decision: AI, voice, manual, or failsafe
+
+8. SHARED AI/BACKEND CONTRACT
+
+Ceaser’s AI code must be callable as a clean Python module. It must not directly control OBS, UI, or camera hardware.
+
+Conceptual input:
+
+{
+  "timestamp_ms": 12500,
+  "mode": "autopilot",
+  "cameras": [
+    {"camera_id": "CAM_TRACK", "features": {...}},
+    {"camera_id": "CAM_WIDE", "features": {...}},
+    {"camera_id": "CAM_SIDE", "features": {...}}
+  ],
+  "audio": {"speech_active": true, "command": null},
+  "current_camera": "CAM_WIDE"
+}
+
+Required output:
+
+{
+  "selected_camera": "CAM_TRACK",
+  "confidence": 0.91,
+  "reason": "Presenter is centered, visible, and speaking",
+  "scores": {
+    "CAM_TRACK": 0.91,
+    "CAM_WIDE": 0.63,
+    "CAM_SIDE": 0.57
+  },
+  "action": "switch",
+  "tracking_action": "follow",
+  "timestamp_ms": 12500
+}
+
+Nero’s orchestrator validates this output, applies safety/cooldown/manual rules, sends the final OBS/camera command, logs the result, and broadcasts the state to the UI.
+
+9. FINAL REPOSITORY STRUCTURE AND OWNERSHIP
+
+dolly-ai-director/
+|-- backend/                         # Nero owns orchestration/integration
+|   |-- app/
+|   |   |-- main.py                 # FastAPI entrypoint
+|   |   |-- routes.py               # HTTP endpoints
+|   |   |-- websocket.py            # Live UI events
+|   |   |-- orchestrator.py         # Connects all components
+|   |   |-- event_logger.py         # Timeline/session log
+|   |   |-- watchdog.py             # Health and failsafe
+|   |   `-- models.py               # Shared Pydantic contracts
+|   |-- requirements.txt
+|   `-- .env.example
+|-- ai/                              # Ceaser owns AI/decision modules
+|   |-- yolo_inference.py
+|   |-- feature_extractor.py
+|   |-- decision_engine.py
+|   |-- state_machine.py
+|   |-- highlight_detector.py
+|   `-- config.py
+|-- client/                          # Nero owns local hardware bridges
+|   |-- camera/frame_sampler.py
+|   |-- obs/obs_controller.py
+|   |-- insta360/camera_controller.py
+|   `-- voice/command_listener.py
+|-- ui/                              # Jeboy design; Nero connects data
+|   `-- dashboard/
+|-- editor/                          # Nero pipeline; Jeboy visual direction
+|   `-- remotion/
+|-- tests/
+|   |-- recorded_scenes/
+|   |-- test_decision_engine.py
+|   `-- test_failsafe.py
+|-- docs/
+|-- .gitignore
+`-- README.md
+
+Branch/workflow rule:
+
+- One owner per component.
+- Use small feature branches and pull requests where practical.
+- Agree on models.py and event JSON first.
+- Do not rename contracts without informing the integrator.
+- Keep camera indexes, OBS scene names, ports, and secrets in config/.env.
+- Never commit .env, model caches, raw long recordings, or API secrets.
+
+10. TEAM RESPONSIBILITIES
+
+Nero — Backend and Integration Lead
+
+- Own local FastAPI, Pydantic contracts, API routes, WebSocket, and orchestrator.
+- Configure OBS scenes and direct OBS WebSocket control.
+- Connect frame sampling to Ceaser’s AI module.
+- Integrate Link tracking/preset/PTZ bridge.
+- Implement voice intent actions.
+- Build event logging, recording controls, watchdog, manual override, and failsafe.
+- Connect dashboard data and controls.
+- Trigger Whisper and Remotion pipeline.
+- Own final end-to-end integration and backup demo.
+
+Ceaser — AI and Decision Lead
+
+- Implement YOLO inference and feature extraction.
+- Define and tune shot-quality features and MCDA weights.
+- Implement candidate selection, state machine, cooldown, and confidence.
+- Provide highlight signals and optional active-speaker/face signals.
+- Test on recorded multi-camera scenes and optimize speed.
+- Return only the agreed output contract; do not tightly couple AI to OBS or UI.
+- Help obtain or verify any official Insta360 developer/control access.
+
+Jeboy — Product, Design, Demo, and Pitch Lead
+
+- Define user story, production rules, and what makes a shot look good.
+- Design dashboard UX and visual system.
+- Direct camera placement and demo staging.
+- Define Remotion template style, title cards, captions, lower thirds, and branding.
+- Write pitch deck, storytelling, competitor framing, and sponsor narrative.
+- Act as demo director/presenter and prepare rehearsals.
+- Review final video quality and ensure the product looks understandable and polished.
+
+Shared responsibilities:
+
+- All three lock the problem, track, pitch claim, and final demo story.
+- Every shared task still has one named owner.
+- Nero decides integration interfaces; Ceaser decides AI internals; Jeboy decides product presentation and visual direction.
+
+11. BUILD ORDER
+
+Phase 1 — Lock and preflight
+
+- Confirm track submission requirements, final one-line pitch, and 90-second demo.
+- Connect and name every camera and microphone.
+- Run the 20–30 minute hardware/OBS stress test.
+- Lock OBS scene names and camera IDs.
+- Create the wide failsafe and manual hotkeys.
+
+Exit condition: stable camera/audio ingest and manual switching.
+
+Phase 2 — Interfaces and basic integration
+
+- Finalize models.py, event schema, scene mapping, and sample AI input/output.
+- Start local FastAPI and dashboard WebSocket.
+- Implement OBS controller and manual API actions.
+- Record a short three-camera test scene for repeatable AI development.
+
+Exit condition: dashboard/API can switch OBS and log the action.
+
+Phase 3 — Perception and scoring
+
+- Run YOLO on recorded/live low-resolution frames.
+- Extract people, framing, centering, motion, stability, and visibility features.
+- Produce scores for all cameras.
+- Display scores and detections in the dashboard.
+
+Exit condition: stable per-camera scores at usable speed.
+
+Phase 4 — Autonomous director
+
+- Connect Ceaser’s decision engine to Nero’s orchestrator.
+- Add hysteresis, persistence, cooldown, manual override, and failsafe.
+- Switch OBS automatically and log every reason.
+- Test single presenter, moving presenter, two-person, empty frame, and camera failure.
+
+Exit condition: natural automatic cuts for a complete 60–90 second scene.
+
+Phase 5 — Tracking and voice
+
+- Enable Link native tracking and presets first.
+- Add tested control bridge only if stable.
+- Add local voice commands and visible command feedback.
+- Ensure manual controls always work if voice/control bridge fails.
+
+Exit condition: at least “follow me,” “wide shot,” “mark this,” and “autopilot” work reliably.
+
+Phase 6 — Memory and automatic edit
+
+- Save synchronized decision, command, transcript, highlight, and recording events.
+- Transcribe locally with Faster-Whisper.
+- Build one Remotion landscape template and one vertical highlight template.
+- Render a 30–60 second captioned highlight.
+
+Exit condition: one-click or one-command post-demo output exists.
+
+Phase 7 — Product polish and submission
+
+- Polish dashboard, explanations, branding, onboarding, README, and architecture diagram.
+- Prepare the pitch deck, demo script, backup video, and pre-rendered final highlight.
+- Run repeated full rehearsals and failure recovery.
+- Freeze major features before the final submission window.
+
+12. PRIORITY LOCK
+
+P0 — Must work before anything else
+
+- Stable 3-camera (or reliable 2+1 fallback) OBS setup.
+- Manual scene switching and wide failsafe.
+- Person/framing analysis.
+- Camera scores and decision engine.
+- Stable automatic switching through direct OBS WebSocket.
+- Link native tracking or preset-based tracking demonstration.
+- Local FastAPI orchestration.
+- Dashboard showing current camera, scores, mode, and reason.
+- Program recording and decision log.
+- Complete live demo plus backup recording.
+
+P1 — Build after P0
+
+- Voice commands.
+- Manual override/autopilot controls.
+- Whisper transcript and captions.
+- Highlight marker/detection.
+- Remotion 30–60 second vertical highlight.
+- Camera-control bridge beyond native tracking.
+
+P2 — Only if time remains
+
+- Mouth-movement active-speaker fusion.
+- OBS MCP natural-language showcase.
+- Isolated recording of every camera and post-production recut.
+- Named/multiple subject logic.
+- Public cloud dashboard or Linux render worker.
+- Private Insta360 SDK integration.
+- Automatic camera placement suggestions.
+
+No P2 work begins while a P0 item is unstable.
+
+13. DEMO FAILURE PROTECTION
+
+Required safeguards:
+
+- Static wide failsafe scene.
+- Keyboard/manual switching for every important scene.
+- Manual/autopilot toggle.
+- Automatic fallback when a feed is stale or disconnected.
+- Local-only critical path; no required cloud call.
+- Pre-recorded full demo video.
+- Pre-rendered Remotion result.
+- Voice-command buttons as backup.
+- Saved event timeline replay if live AI visualization fails.
+- Spare cables/power and a backup camera.
+- One person watches system health while another presents.
+
+Failure rule:
+If an optional feature fails twice during rehearsal, remove it from the live critical path and show it through a backup clip or explain it as the next step.
+
+14. FINAL 90-SECOND DEMO SCRIPT
+
+0–10 seconds: State the problem — professional multi-camera production needs a crew, but most creators work alone.
+
+10–20 seconds: Show three camera feeds and turn on Autopilot.
+
+20–40 seconds: Presenter speaks and moves. Dolly detects framing changes, tracks the presenter, and switches from wide to the strongest shot. Dashboard shows scores and the reason.
+
+40–55 seconds: A second person enters. Dolly changes to a wide/two-person angle without rapid flicker.
+
+55–65 seconds: Say “Dolly, mark this” and “Dolly, wide shot.” Show command confirmation and manual/voice priority.
+
+65–75 seconds: Stop recording. Show the saved decision timeline and a short explanation of why each cut happened.
+
+75–90 seconds: Open the prepared/generated vertical captioned highlight and finish with:
+
+“Dolly doesn’t just edit after the shoot. It becomes the production crew during the shoot, remembers every decision, and delivers content ready to publish.”
+
+15. MVP ACCEPTANCE CHECKLIST
+
+The team may call the project demo-ready only when all required boxes are true:
+
+[ ] Stable camera and audio ingest.
+[ ] Wide failsafe and manual controls.
+[ ] AI produces real features and scores, not fake dashboard numbers.
+[ ] Automatic cuts obey persistence and cooldown.
+[ ] A bad/missing feed triggers a safe fallback.
+[ ] Link tracks the presenter or reliably moves through presets.
+[ ] Voice or button can mark a highlight.
+[ ] Dashboard displays live state and decision reason.
+[ ] Recording and synchronized event log are saved.
+[ ] One captioned highlight video can be shown.
+[ ] Full demo works without internet.
+[ ] Backup video and pre-rendered output are ready.
+[ ] All three members can explain the architecture and their own contribution.
+
+16. FINAL PITCH POSITIONING
+
+Problem:
+Professional-looking multi-camera video normally requires a director, camera operators, and an editor. Solo creators, educators, podcasters, and small teams cannot afford that crew.
+
+Solution:
+Dolly turns existing cameras into an autonomous production crew that sees the scene, directs it live, follows the subject, explains every cut, and automatically prepares the final content.
+
+Technical edge:
+Real-time multi-camera computer vision, audio context, explainable MCDA shot scoring, a stable state machine, direct camera/OBS control, event memory, and automated post-production form one closed loop.
+
+Why now:
+Creators already own capable cameras and microphones, but the intelligence connecting them is missing.
+
+Why this team:
+Jeboy understands real production and product storytelling; Ceaser builds the AI decision brain; Nero connects cameras, OBS, backend, controls, UI, and editing into a working system.
+
+17. FINAL NON-NEGOTIABLE DECISIONS
+
+- Build Dolly, not GuardianAI or FieldVoyager.
+- Team FRAME-26 remains a three-person team.
+- The Windows OBS laptop is the real-time production machine.
+- Nero owns backend and complete integration.
+- Ceaser owns AI perception, scoring, and decision logic.
+- Jeboy owns product, UX, demo, visuals, and pitch.
+- AI and backend communicate through a clean Pydantic/JSON contract.
+- Direct OBS WebSocket controls live cuts; OBS MCP is optional.
+- Link native tracking/presets are the reliable camera-movement MVP.
+- yolo26n-pose is primary; YOLOv8n is fallback.
+- React dashboard is primary; Gradio is fallback.
+- Remotion is for post-production, not live switching.
+- Linux server is optional and never required for the live demo.
+- P0 reliability always wins over adding new features.
+
+======================================================================
+PART 2 — 中文
+======================================================================
+
+1. 最终项目决定
+
+团队名称：FRAME-26
+产品名称：Dolly
+成员：Nero、Ceaser、Jeboy
+代码仓库：dolly-ai-director
+
+一句话定义：
+Dolly 是一个自主 AI 制作团队：它同时观察多个机位，跟踪拍摄对象，实时选择并切换最佳镜头，接受简单的导演指令，解释每次决策，并在录制结束后自动生成可发布的视频。
+
+最终产品不只是剪辑器、切换台、语音助手或仪表盘。真正的核心是完整闭环：
+
+多机位 -> 视觉/音频感知 -> 镜头评分 -> 稳定的导演决策 -> 摄像机/OBS 执行动作 -> 决策记忆 -> 自动成片。
+
+团队锁定为三人。除非三个人一致确认存在无法补齐的关键能力，否则不加入第四名成员。
+
+2. 最终演示承诺
+
+现场演示必须完成以下故事：
+
+1）Dolly 和 OBS 中显示三个机位。
+2）演讲者开始说话。
+3）Dolly 检测演讲者并选择合适的中景/近景。
+4）演讲者移动，跟踪摄像机自动跟随。
+5）第二个人进入画面，Dolly 切换到广角或双人镜头。
+6）用户说“Dolly, wide shot”或“Dolly, mark this”等指令。
+7）Dolly 显示当前机位、各机位分数、置信度和切换原因。
+8）Dolly 保存所有切换、指令、字幕时间戳和精彩时刻标记。
+9）录制结束后，Dolly 生成一个带字幕的 30–60 秒精彩短片。
+
+以上九项全部完成，即视为 MVP 完成。其他功能均为次要功能。
+
+3. 最终硬件方案
+
+三机位 MVP：
+
+- Insta360 Link 2 Pro：移动/跟踪演讲者；使用原生 AI 跟踪与预设位。
+- Insta360 Ace Pro 2 #1：固定广角和安全兜底镜头。
+- Insta360 Ace Pro 2 #2：固定侧面、嘉宾或产品角度。
+- Insta360 Mic Pro：主音频、语音指令、VAD、转录和精彩时刻检测。
+- Windows 笔记本：运行 OBS、本地 FastAPI、感知、决策引擎、仪表盘、控制桥、日志和剪辑触发器。
+- 有源 USB Hub 和 USB-C 3.x 线缆：连接设备；条件允许时把摄像机分配到不同的高速 USB 控制器/接口。
+- 三脚架/支架和持续供电：保证机位固定、可重复。
+
+可选/备用设备：
+
+- Luna Ultra：只有在稳定输出且不影响三机系统时，作为主视觉/展示机位。
+- DJI Pocket 4：备用摄像机；除非实时采集和控制已稳定，否则不进入关键链路。
+- 更多机位：只有完整三机闭环稳定后才考虑。
+
+机位摆放：
+
+- Link 2 Pro：正面或前侧方，中等距离，并给跟踪运动留出空间。
+- Ace Pro 2 广角：居中，覆盖整个演示区域，演示期间不移动。
+- Ace Pro 2 侧面：30–45 度角，用于画面变化、嘉宾或产品特写。
+
+硬件验收：
+
+- 三路视频和 Mic Pro 连续运行至少 20–30 分钟。
+- 不频繁断连、不因过热关机、设备名称不乱变、丢帧可接受。
+- 广角机位始终可作为安全兜底。
+
+若电脑或 USB 总线无法稳定支持三机，则使用两路实时机位加一路预录/模拟输入。可靠性比机位数量更重要。
+
+4. 最终系统架构
+
+所有实时组件都运行在与 OBS 相同的 Windows 笔记本上：
+
+摄像机 -> OBS Studio -> 低分辨率抽帧 -> YOLO/人脸特征 -> Ceaser 的评分和状态机 -> Nero 的本地编排器 -> 直接 OBS WebSocket -> 实时切换场景。
+
+同时：
+
+Mic Pro -> VAD/Whisper -> 语音指令和转录事件 -> 编排器。
+
+编排器还会向 Link 2 Pro 发送经过验证的跟踪/预设/PTZ 指令，把实时状态推送到仪表盘，并写入决策时间线。
+
+录制后：
+
+OBS 录像 + 转录 + 决策/精彩时刻时间线 -> Remotion/FFmpeg -> 横屏完整版和竖屏精彩短片。
+
+Linux 服务器决定：
+
+- Linux 服务器不进入实时关键链路。
+- 可用于公开仪表盘、备份日志/会话元数据、非关键公开 API 或可选渲染任务。
+- 网络或 Wi-Fi 断开时，自动导播、OBS 切换、录像、本地仪表盘和演示仍必须工作。
+
+5. 最终技术选型
+
+视频核心：
+
+- OBS Studio：采集、场景、转场、节目音频和录像。
+- OBS 内置 WebSocket：确定性实时控制。
+- Python 直接连接 OBS WebSocket；实时切换不经过 LLM。
+
+感知：
+
+- 首选 Ultralytics yolo26n-pose：人物检测、框、姿态、跟踪信号、构图、运动和遮挡。
+- 备用 YOLOv8n/YOLOv8n-pose：仅在首选模型安装、兼容性或性能出问题时使用。
+- OpenCV：采集、缩放、时间戳、运动/稳定性指标和图像处理。
+- 可选 MediaPipe Face Landmarker：人脸大小、朝向、可见度和嘴部运动。
+
+音频与语音：
+
+- 除非必须备用，节目音频只使用 Insta360 Mic Pro。
+- Silero VAD 或 WebRTC VAD 检测说话活动。
+- Faster-Whisper Tiny/Base 本地转录。
+- 演示指令使用确定性的关键词/意图解析器；基础指令不需要 LLM。
+
+后端与实时集成：
+
+- Python FastAPI。
+- Pydantic 模型作为共享接口契约。
+- WebSocket 向仪表盘推送状态和事件。
+- 快速开发阶段使用 JSONL；需要查询会话时使用 SQLite。
+
+仪表盘：
+
+- 首选 React + Vite + Tailwind，制作面向评委的精致界面。
+- 如果 React 未完成，Gradio 仅作为快速备用。
+
+后期制作：
+
+- Remotion：模板、字幕、标题、人物条、品牌、横竖屏布局和最终合成。
+- FFmpeg：探测、剪切、转码、音频标准化和备用渲染。
+
+可选展示：
+
+- OBS MCP 可以用于一次自然语言/Agent 展示，但绝不能用于逐帧自动切换。
+
+明确不做或延后：
+
+- 不使用 Insta360 ProCameraApi，因为它面向 Insta360 Pro、Pro 2、Titan，而不是当前消费级/Link 摄像机。
+- 实时决策链路中不使用云端 LLM，避免延迟和网络依赖。
+- Linux 服务器不作为实时大脑。
+- 不训练新的大型模型。
+- 人脸身份识别延后，核心演示不需要。
+- 不做完整移动 App、账号、支付、团队协作平台或复杂云架构。
+- 三机闭环稳定前，不增加更多关键实时机位。
+
+6. 摄像机控制与语音控制
+
+控制分为两层。
+
+A）Insta360 原生设备控制
+
+- 使用 Link Controller 原生 AI 跟踪、自动构图、预设位、手动摇杆和支持的手势控制。
+- 支持时，摄像机原生语音仍可用于开始/停止录像等设备功能。
+
+B）Dolly 导演控制
+
+Dolly 应支持：
+
+- 跟随我/停止跟随。
+- 左右平移、上下俯仰。
+- 回中。
+- 放大/缩小。
+- 预设位 1/2/3。
+- 广角/演讲者镜头/机位一二三。
+- 开始/停止录像。
+- 标记精彩时刻。
+- 自动/手动模式。
+
+控制优先级：
+
+1）Insta360 官方控制或受支持的 Link Controller 集成。
+2）Link 原生跟踪和预设位。
+3）经过实机测试的本地 Link Controller bridge/CLI/WebSocket。
+4）手动快捷键/摇杆作为最终备用。
+
+PowerShell 或 BAT 只是把指令发送到真实控制层的包装器，本身不是摄像机 API。PTZ 自动化不能阻塞主演示；“原生跟踪 + 预设位”已经可以作为 MVP。
+
+7. AI 导演决策逻辑
+
+AI 输入：
+
+- 节目录制目标：1080p、30 fps。
+- AI 输入约 640x360。
+- 每个机位约 3–5 fps 分析，按电脑性能调整。
+- 不对每一帧做全分辨率推理。
+
+每机位特征：
+
+- 人数。
+- 主体框和跟踪 ID。
+- 人脸/身体可见度。
+- 主体大小与近景/中景/广角类型。
+- 居中与三分构图位置。
+- 身体/人脸被切断的惩罚。
+- 运动和稳定性。
+- 遮挡。
+- 启用人脸分析时的头部方向与嘴部运动。
+- 当前镜头是否符合说话/运动场景。
+
+初始 MCDA 权重：
+
+- 主体可见：25%。
+- 人脸/身体构图：20%。
+- 居中/构图：15%。
+- 人脸可见：15%。
+- 稳定性：10%。
+- 运动/场景匹配：10%。
+- 角度多样性：5%。
+
+权重必须配置化，并使用录制的测试场景调参。
+
+状态机规则：
+
+- 不能因为另一个机位只赢了一帧就切换。
+- 候选机位应持续领先约 1–2 秒。
+- 必须比当前机位高出设定阈值。
+- 切换后冷却 3–5 秒。
+- 避免马上切回上一个镜头。
+- 置信度低、视频源异常或主体消失时，切到广角兜底。
+- 手动接管后停止自动切换，直到明确恢复 Autopilot。
+- 语音指令暂时覆盖评分，超时或收到指令后恢复 Autopilot。
+- 限制无意义切换，保持自然的制作节奏。
+
+每次决策必须包含：selected_camera、confidence、各机位 scores、reason、timestamp、mode，以及来源 AI/voice/manual/failsafe。
+
+8. AI 与后端共享契约
+
+Ceaser 的 AI 必须是可直接调用的独立 Python 模块，不能直接控制 OBS、UI 或硬件。
+
+概念输入：timestamp、mode、每个 camera_id 的 features、audio 状态、current_camera。
+
+必需输出：selected_camera、confidence、reason、所有 scores、action、tracking_action、timestamp。
+
+Nero 的 orchestrator 负责验证输出，执行安全/冷却/手动规则，向 OBS/摄像机发送最终动作，记录事件并向 UI 广播状态。
+
+9. 最终仓库结构与所有权
+
+dolly-ai-director/
+|-- backend/        # Nero：FastAPI、接口、WebSocket、orchestrator、日志、watchdog、models
+|-- ai/             # Ceaser：YOLO、特征、MCDA、状态机、highlight
+|-- client/         # Nero：frame sampler、OBS、Insta360、voice bridge
+|-- ui/dashboard/   # Jeboy 设计，Nero 接数据
+|-- editor/remotion/# Nero 负责流程，Jeboy 负责视觉方向
+|-- tests/           # 录制场景、决策与故障测试
+|-- docs/
+|-- .gitignore
+`-- README.md
+
+协作规则：
+
+- 每个组件只有一个明确 owner。
+- 尽量使用小 feature branch 和 PR。
+- 先确定 models.py 和事件 JSON。
+- 修改接口契约前必须通知集成人。
+- 摄像机编号、OBS 场景名、端口和密钥放入配置/.env。
+- 不提交 .env、模型缓存、长原始录像或 API 密钥。
+
+10. 成员职责
+
+Nero — 后端与系统集成负责人
+
+- 本地 FastAPI、Pydantic、API、WebSocket、orchestrator。
+- OBS 场景配置和直接 WebSocket 控制。
+- 抽帧与 Ceaser AI 模块连接。
+- Link 跟踪/预设/PTZ bridge。
+- 语音意图动作。
+- 日志、录像控制、watchdog、手动接管和兜底。
+- 仪表盘数据与控制连接。
+- Whisper/Remotion 流程触发。
+- 最终端到端集成与备用演示。
+
+Ceaser — AI 与决策负责人
+
+- YOLO 推理和特征提取。
+- 镜头质量特征、MCDA 权重和调参。
+- 候选选择、状态机、冷却与置信度。
+- 精彩时刻信号和可选的说话人/人脸信号。
+- 录制多机素材测试和性能优化。
+- 严格返回约定接口，不把 AI 与 OBS/UI 强绑定。
+- 协助获取/验证 Insta360 官方开发或控制能力。
+
+Jeboy — 产品、设计、演示与路演负责人
+
+- 用户故事、真实制作规则、好镜头标准。
+- 仪表盘 UX 和视觉系统。
+- 机位摆放和演示调度。
+- Remotion 模板、标题、字幕、人物条和品牌方向。
+- Pitch deck、叙事、竞品和赞助商故事。
+- 演示导演/演讲者与排练。
+- 最终视频质量和产品表达审核。
+
+三人共同确定问题、赛道、核心 claim 和演示故事。但每个共享任务仍需指定一个 owner。
+
+11. 构建顺序
+
+阶段 1：锁定与预检
+
+- 确认赛道要求、一句话介绍、90 秒演示。
+- 连接并命名摄像机/麦克风。
+- 完成 20–30 分钟硬件和 OBS 压力测试。
+- 锁定 OBS 场景名、camera ID、广角兜底和手动快捷键。
+
+完成标准：稳定采集并可手动切换。
+
+阶段 2：接口和基础集成
+
+- 确定 models.py、事件格式、场景映射和样例输入输出。
+- 启动本地 FastAPI 与仪表盘 WebSocket。
+- 完成 OBS controller 和手动 API。
+- 录制可重复开发的三机测试素材。
+
+完成标准：仪表盘/API 可切换 OBS 并记录动作。
+
+阶段 3：感知与评分
+
+- 对录制/实时低分辨率帧运行 YOLO。
+- 提取人物、构图、居中、运动、稳定和可见度。
+- 输出所有机位分数并在仪表盘显示。
+
+完成标准：以可用速度稳定输出分数。
+
+阶段 4：自主导演
+
+- 连接 Ceaser 决策引擎与 Nero orchestrator。
+- 加入滞回、持续领先、冷却、手动接管和兜底。
+- 自动切换 OBS，并记录每次原因。
+- 测试单人、移动、双人、空画面和摄像机故障。
+
+完成标准：完整 60–90 秒场景中切换自然稳定。
+
+阶段 5：跟踪与语音
+
+- 优先启用 Link 原生跟踪和预设位。
+- 只有稳定时才加入控制 bridge。
+- 加入本地语音指令和可见反馈。
+- 语音/bridge 失败时手动控制必须可用。
+
+完成标准：至少“follow me”“wide shot”“mark this”“autopilot”可靠工作。
+
+阶段 6：记忆与自动剪辑
+
+- 同步保存决策、指令、转录、精彩点和录制事件。
+- Faster-Whisper 本地转录。
+- 制作一个横屏模板和一个竖屏短片模板。
+- 输出 30–60 秒字幕精彩短片。
+
+完成标准：录制结束后可一键/一条命令获得成片。
+
+阶段 7：产品打磨与提交
+
+- 打磨仪表盘、解释、品牌、README 和架构图。
+- 准备 Pitch deck、演示脚本、备用录像和预渲染短片。
+- 反复完整排练并测试故障恢复。
+- 最终提交窗口前冻结大功能。
+
+12. 优先级锁定
+
+P0 必须完成：
+
+- 稳定三机，或可靠的两路实时 + 一路备用输入。
+- 手动切换和广角兜底。
+- 人物/构图分析。
+- 机位评分和决策引擎。
+- 通过直接 OBS WebSocket 稳定自动切换。
+- Link 原生跟踪或预设位演示。
+- 本地 FastAPI 编排。
+- 仪表盘显示当前机位、分数、模式和原因。
+- 节目录像、决策日志、完整现场演示和备用录像。
+
+P1 在 P0 后完成：
+
+- 语音指令。
+- 手动接管/Autopilot。
+- Whisper 字幕。
+- 精彩时刻标记/检测。
+- Remotion 30–60 秒竖屏短片。
+- 超出原生跟踪的摄像机控制 bridge。
+
+P2 仅有余力时：
+
+- 嘴部运动与主动说话人融合。
+- OBS MCP 自然语言展示。
+- 每机位独立录像和后期重切。
+- 多个命名主体。
+- 公开云端仪表盘/Linux 渲染 worker。
+- Insta360 私有 SDK。
+- 自动机位摆放建议。
+
+只要有 P0 不稳定，就不开始 P2。
+
+13. 演示故障保护
+
+- 固定广角兜底场景。
+- 所有重要场景都有键盘/手动切换。
+- Manual/Autopilot 开关。
+- 视频源卡死/断开自动回退。
+- 关键链路完全本地运行。
+- 完整预录演示和预渲染短片。
+- 语音指令对应的备用按钮。
+- AI 可视化失败时回放真实保存的事件时间线。
+- 备用线缆、供电和摄像机。
+- 一人演示，一人监控系统。
+
+如果一个可选功能在排练中连续失败两次，就把它移出现场关键链路，用备用视频展示或作为下一步说明。
+
+14. 最终 90 秒演示脚本
+
+0–10 秒：说明问题——专业多机制作需要导演、摄影师和剪辑师，但大多数创作者只能独立工作。
+
+10–20 秒：展示三个机位并开启 Autopilot。
+
+20–40 秒：演讲者说话并移动。Dolly 检测构图变化、跟踪人物，从广角切换到最佳镜头；仪表盘显示评分和原因。
+
+40–55 秒：第二个人进入，Dolly 稳定切换到广角/双人镜头，不快速闪切。
+
+55–65 秒：说“Dolly, mark this”和“Dolly, wide shot”，展示语音优先与指令确认。
+
+65–75 秒：停止录像，展示决策时间线和每次切换原因。
+
+75–90 秒：打开生成/预备好的竖屏字幕短片，并用以下句子结束：
+
+“Dolly 不只在拍摄后剪辑。它在拍摄中就成为制作团队，记住每个决定，并交付可直接发布的内容。”
+
+15. MVP 验收清单
+
+[ ] 摄像机和音频稳定。
+[ ] 广角兜底和手动控制可用。
+[ ] AI 显示真实特征与评分，不使用假数据。
+[ ] 自动切换遵守持续时间和冷却。
+[ ] 坏源/断源会安全回退。
+[ ] Link 能跟踪演讲者或可靠调用预设位。
+[ ] 语音或按钮可标记精彩时刻。
+[ ] 仪表盘显示实时状态和原因。
+[ ] 保存录像与同步事件日志。
+[ ] 可展示一个带字幕精彩短片。
+[ ] 无网络也能完成演示。
+[ ] 备用录像和预渲染结果准备完毕。
+[ ] 三人都能解释架构与个人贡献。
+
+16. 最终 Pitch 定位
+
+问题：专业多机视频通常需要导演、摄影师和剪辑师，个人创作者、教师、播客和小团队负担不起。
+
+方案：Dolly 把现有摄像机变成自主制作团队，在现场理解场景、实时导播、跟踪人物、解释切换，并自动准备最终内容。
+
+技术优势：实时多机视觉、音频上下文、可解释的 MCDA 镜头评分、稳定状态机、直接摄像机/OBS 控制、事件记忆和自动后期组成完整闭环。
+
+为什么是现在：创作者已经拥有强大的摄像机和麦克风，但缺少把它们连接起来的智能层。
+
+为什么是我们：Jeboy 懂真实制作与产品叙事，Ceaser 构建 AI 决策大脑，Nero 把摄像机、OBS、后端、控制、UI 和剪辑连接成可工作的系统。
+
+17. 不可变更的最终决定
+
+- 做 Dolly，不做 GuardianAI 或 FieldVoyager。
+- FRAME-26 保持三人团队。
+- Windows OBS 笔记本是实时制作主机。
+- Nero 负责后端和完整系统集成。
+- Ceaser 负责 AI 感知、评分和决策逻辑。
+- Jeboy 负责产品、UX、演示、视觉和 Pitch。
+- AI 与后端通过清晰的 Pydantic/JSON 契约连接。
+- 实时切换使用直接 OBS WebSocket；OBS MCP 仅可选。
+- Link 原生跟踪/预设位是可靠的运动控制 MVP。
+- yolo26n-pose 首选，YOLOv8n 备用。
+- React 仪表盘首选，Gradio 备用。
+- Remotion 用于后期，不用于实时切换。
+- Linux 服务器可选，现场演示不依赖它。
+- P0 可靠性永远优先于新功能。
+
+======================================================================
+PART 3 — МОНГОЛ
+======================================================================
+
+1. ТӨСЛИЙН ЭЦСИЙН ШИЙДВЭР
+
+Багийн нэр: FRAME-26
+Бүтээгдэхүүний нэр: Dolly
+Гишүүд: Nero, Ceaser, Jeboy
+Repository: dolly-ai-director
+
+Нэг өгүүлбэрээр:
+Dolly бол олон камерыг зэрэг ажиглаж, хүнийг дагаж, хамгийн сайн кадрыг бодит хугацаанд сонгон сольж, энгийн найруулагчийн команд авч, шийдвэрээ тайлбарлаад, бичлэгийг нийтлэхэд бэлэн видео болгодог автономит AI продакшны баг юм.
+
+Эцсийн бүтээгдэхүүн зөвхөн editor, camera switcher, voice assistant эсвэл dashboard биш. Гол давуу тал нь бүтэн хаалттай цикл байна:
+
+Олон камер -> дүрс/дууны ойлголт -> кадрын үнэлгээ -> тогтвортой найруулагчийн шийдвэр -> камер/OBS action -> шийдвэрийн санах ой -> автомат эцсийн видео.
+
+Баг 3 хүнээрээ lock. Гурвуулаа нөхөж чадахгүй critical skill байна гэж санал нэгдэхээс бусад тохиолдолд 4 дэх хүн нэмэхгүй.
+
+2. FINAL DEMO-ГООР ЮУ АМЛАХ ВЭ
+
+Live demo дараах бүтэн түүхийг үзүүлнэ:
+
+1) Dolly болон OBS дээр 3 camera feed харагдана.
+2) Presenter ярьж эхэлнэ.
+3) Dolly presenter-ийг илрүүлээд тохиромжтой medium/close shot сонгоно.
+4) Presenter хөдлөхөд tracking camera дагана.
+5) Хоёр дахь хүн орж ирэхэд Dolly wide эсвэл two-person shot руу шилжинэ.
+6) Хэрэглэгч “Dolly, wide shot” эсвэл “Dolly, mark this” гэх мэт command хэлнэ.
+7) Dolly сонгосон camera, score, confidence, decision reason-оо харуулна.
+8) Бүх switch, command, transcript timestamp, highlight marker-ийг хадгална.
+9) Recording зогсоход caption-тай 30–60 секундийн highlight video гаргана.
+
+Энэ 9 зүйл ажиллавал MVP дууссан гэж үзнэ. Бусад feature secondary.
+
+3. FINAL HARDWARE PLAN
+
+Үндсэн 3-camera MVP:
+
+- Insta360 Link 2 Pro: presenter-ийг хөдөлгөөнөөр дагах camera; native AI tracking болон preset ашиглана.
+- Insta360 Ace Pro 2 #1: хөдөлгөөнгүй wide/failsafe shot.
+- Insta360 Ace Pro 2 #2: side, guest эсвэл product angle.
+- Insta360 Mic Pro: program audio, voice command, VAD, transcript, highlight-ийн үндсэн mic.
+- Windows laptop: OBS, local FastAPI, perception, decision engine, dashboard, control bridge, log, edit trigger бүгдийг ажиллуулна.
+- Powered USB hub болон USB-C 3.x cable: camera connection. Боломжтой бол camera-нуудыг тусдаа өндөр bandwidth-тэй USB controller/port-д хуваана.
+- Tripod/mount болон тасралтгүй тэжээл: camera placement тогтвортой, давтагдахуйц байна.
+
+Optional/backup төхөөрөмж:
+
+- Luna Ultra: 3-camera системд саад болохгүй, stable live feed өгвөл hero/showcase camera болгон ашиглана.
+- DJI Pocket 4: backup camera. Live capture/control нь батлагдаагүй бол critical path-д оруулахгүй.
+- Нэмэлт camera: 3-camera бүтэн цикл тогтвортой болсны дараа л нэмнэ.
+
+Camera placement:
+
+- Link 2 Pro: урд эсвэл урд-хажуу талд, дунд зайд, tracking хийх чөлөөтэй орон зайтай.
+- Ace Pro 2 wide: голд, demo area-г бүтнээр харна, demo дундуур хөдөлгөхгүй.
+- Ace Pro 2 side: 30–45 градусын өнцөгт, guest/product close-up болон angle diversity-д.
+
+Hardware acceptance test:
+
+- 3 feed + Mic Pro 20–30 минут тасралтгүй ажиллана.
+- Дахин дахин disconnect болохгүй, хэт халж унтрахгүй, device нэр савлахгүй, dropped frame зөвшөөрөх түвшинд байна.
+- Wide camera үргэлж failsafe байдлаар үлдэнэ.
+
+Laptop эсвэл USB bus 3 camera даахгүй бол 2 live camera + 1 prerecorded/simulated input ашиглана. Camera-гийн тооноос reliability чухал.
+
+4. FINAL SYSTEM ARCHITECTURE
+
+Real-time бүх component OBS-той нэг Windows laptop дээр local ажиллана:
+
+Camera feed -> OBS Studio -> low-resolution frame sampler -> YOLO/face feature -> Ceaser-ийн scoring/state machine -> Nero-ийн local orchestrator -> direct OBS WebSocket -> live scene switch.
+
+Зэрэгцээ audio flow:
+
+Mic Pro -> VAD/Whisper -> voice command болон transcript event -> orchestrator.
+
+Orchestrator нь Link 2 Pro руу баталгаажсан tracking/preset/PTZ command явуулж, dashboard руу real-time state дамжуулж, decision timeline хадгална.
+
+Recording-ийн дараа:
+
+OBS recording + transcript + decision/highlight timeline -> Remotion/FFmpeg -> horizontal full video + vertical highlight.
+
+Linux server-ийн эцсийн шийдвэр:
+
+- Linux server live critical path-д орохгүй.
+- Public dashboard host хийх, log/session metadata backup авах, non-critical public API гаргах эсвэл optional render job ажиллуулахад ашиглаж болно.
+- Internet/Wi-Fi тасарсан ч auto-directing, OBS switching, recording, local dashboard болон demo ажиллах ёстой.
+
+5. FINAL TECHNOLOGY DECISION
+
+Core video engine:
+
+- OBS Studio: camera ingest, scene, transition, program audio, recording.
+- OBS-ийн built-in WebSocket: deterministic real-time control.
+- Python direct OBS WebSocket client: live switch LLM-ээр дамжихгүй.
+
+Perception:
+
+- Primary: Ultralytics yolo26n-pose — хүн, bounding box, pose, tracking signal, body framing, movement, occlusion.
+- Fallback: primary model install, compatibility эсвэл performance асуудалтай үед YOLOv8n/YOLOv8n-pose.
+- OpenCV: capture, resize, timestamp, motion/stability metric, image processing.
+- Optional MediaPipe Face Landmarker: face size, head direction, face visibility, mouth movement.
+
+Audio/voice:
+
+- Шаардлагатай backup-аас бусад үед program audio зөвхөн Insta360 Mic Pro-оос.
+- Speech activity-д Silero VAD эсвэл WebRTC VAD.
+- Local transcription-д Faster-Whisper Tiny/Base.
+- Demo command-д deterministic keyword/intent parser; basic command-д LLM хэрэггүй.
+
+Backend/integration:
+
+- Python FastAPI.
+- Shared interface contract-д Pydantic model.
+- Dashboard state/event-д WebSocket.
+- Хурдан хөгжүүлэлтэд JSONL; query хийдэг session хэрэгтэй бол SQLite.
+
+Dashboard:
+
+- Primary: judge-д зориулсан polished UI хийх React + Vite + Tailwind.
+- React бэлэн болохгүй үед Gradio зөвхөн хурдан fallback.
+
+Post-production:
+
+- Remotion: template, caption, title, lower-third, branding, landscape/vertical layout, final composition.
+- FFmpeg: probe, cut, transcode, audio normalization, fallback render.
+
+Optional showcase:
+
+- OBS MCP-г нэг natural-language/agent demo-д ашиглаж болно. Frame бүрийн automatic switch-д хэзээ ч ашиглахгүй.
+
+Ашиглахгүй эсвэл хойшлуулах зүйл:
+
+- Insta360 ProCameraApi ашиглахгүй. Энэ нь Insta360 Pro, Pro 2, Titan-д зориулагдсан, манай consumer/Link camera-д биш.
+- Live decision loop-д cloud LLM ашиглахгүй: latency болон network dependency их.
+- Linux server-ийг live brain болгохгүй.
+- Шинэ том model train хийхгүй.
+- Face identity recognition core demo-д хэрэггүй тул хойшлуулна.
+- Full mobile app, user account, payment, team collaboration platform, complex cloud architecture хийхгүй.
+- 3-camera цикл дуусаагүй байхад critical live camera нэмэхгүй.
+
+6. CAMERA CONTROL БОЛОН VOICE CONTROL
+
+Хоёр тусдаа control layer байна.
+
+A) Insta360 native device control
+
+- Link Controller-ийн native AI tracking, auto-framing, preset, manual joystick, supported gesture control ашиглана.
+- Дэмжигдэж байгаа бол camera-ийн native voice command-оор start/stop recording зэрэг device function ашиглаж болно.
+
+B) Dolly director control
+
+Dolly дараах command-уудыг дэмжинэ:
+
+- Follow me / stop following.
+- Pan left/right, tilt up/down.
+- Center.
+- Zoom in/out.
+- Preset 1/2/3.
+- Wide shot / presenter shot / camera one-two-three.
+- Start/stop recording.
+- Mark highlight.
+- Autopilot/manual mode.
+
+Control priority:
+
+1) Insta360 official control эсвэл supported Link Controller integration.
+2) Link-ийн native tracking болон saved presets.
+3) Бодитоор test хийж тогтвортой болсон local Link Controller bridge/CLI/WebSocket.
+4) Final fallback болгон manual hotkey/joystick.
+
+PowerShell/BAT нь зөвхөн жинхэнэ control layer руу command явуулах wrapper; өөрөө camera API биш. PTZ automation main demo-г гацаах ёсгүй. Native tracking + preset байхад MVP хангалттай.
+
+7. AI DIRECTOR-ИЙН ШИЙДВЭРИЙН ЛОГИК
+
+AI input:
+
+- Program recording target: 1080p, 30 fps.
+- AI input: ойролцоогоор 640x360.
+- Camera бүрийг laptop-ийн performance-д тааруулан 3–5 fps орчим analyze хийнэ.
+- Frame бүр дээр full-resolution inference хийхгүй.
+
+Camera бүрийн feature:
+
+- Хүний тоо.
+- Primary subject bounding box болон tracking ID.
+- Face/body visibility.
+- Subject size, close/medium/wide shot type.
+- Centering, rule-of-thirds position.
+- Body/face cutoff penalty.
+- Motion болон stability.
+- Occlusion.
+- Face analysis асаалттай бол head direction, mouth movement.
+- Одоогийн яриа/хөдөлгөөний context-д shot тохирч байгаа эсэх.
+
+Эхний MCDA weight:
+
+- Subject visible: 25%.
+- Face/body framing: 20%.
+- Centering/composition: 15%.
+- Face visibility: 15%.
+- Stability: 10%.
+- Movement/context fit: 10%.
+- Angle diversity: 5%.
+
+Weight нь hard-coded үнэн биш, config байна. Recorded test scene ашиглаж tune хийнэ.
+
+State machine rule:
+
+- Өөр camera ганц frame дээр ялмагц switch хийхгүй.
+- Candidate camera 1–2 секунд тогтвортой дээр байх ёстой.
+- Current camera-аас тодорхой margin-аар илүү байна.
+- Cut хийсний дараа 3–5 секунд cooldown тавина.
+- Өмнөх shot руу шууд буцахаас зайлсхийнэ.
+- Confidence муу, feed fail болсон, subject алга болсон үед wide failsafe руу орно.
+- Manual override хийвэл autopilot-ийг зориуд буцааж асаах хүртэл AI switch хийхгүй.
+- Voice command score-ийг түр override хийгээд timeout эсвэл command-аар autopilot руу буцна.
+- Хэрэггүй cut-ийг багасгаж natural production rhythm хадгална.
+
+Decision бүр selected_camera, confidence, camera scores, reason, timestamp, mode, source буюу AI/voice/manual/failsafe талбартай байна.
+
+8. AI/BACKEND SHARED CONTRACT
+
+Ceaser-ийн AI нь clean Python module байдлаар callable байна. OBS, UI эсвэл camera hardware-ийг шууд удирдахгүй.
+
+Conceptual input: timestamp, mode, camera бүрийн camera_id + features, audio state, current_camera.
+
+Required output: selected_camera, confidence, reason, бүх scores, action, tracking_action, timestamp.
+
+Nero-ийн orchestrator output-ийг validate хийж, safety/cooldown/manual rule хэрэглээд, final OBS/camera command өгч, log хадгалж, UI руу state broadcast хийнэ.
+
+9. FINAL REPOSITORY STRUCTURE БА OWNERSHIP
+
+dolly-ai-director/
+|-- backend/          # Nero: FastAPI, API, WebSocket, orchestrator, log, watchdog, models
+|-- ai/               # Ceaser: YOLO, feature, MCDA, state machine, highlight
+|-- client/           # Nero: frame sampler, OBS, Insta360, voice bridge
+|-- ui/dashboard/     # Jeboy design, Nero data connection
+|-- editor/remotion/  # Nero pipeline, Jeboy visual direction
+|-- tests/            # recorded scene, decision, failsafe tests
+|-- docs/
+|-- .gitignore
+`-- README.md
+
+Workflow rule:
+
+- Component бүр нэг owner-той.
+- Боломжтой үед жижиг feature branch болон PR ашиглана.
+- Эхлээд models.py болон event JSON-оо тохирно.
+- Contract rename/change хийхээс өмнө integrator-т мэдэгдэнэ.
+- Camera index, OBS scene name, port, secret-ийг config/.env-д хадгална.
+- .env, model cache, урт raw recording, API secret commit хийхгүй.
+
+10. TEAM RESPONSIBILITY
+
+Nero — Backend & Integration Lead
+
+- Local FastAPI, Pydantic contract, API, WebSocket, orchestrator.
+- OBS scene setup болон direct WebSocket control.
+- Frame sampler-ийг Ceaser AI module-той холбоно.
+- Link tracking/preset/PTZ bridge.
+- Voice intent action.
+- Event log, recording control, watchdog, manual override, failsafe.
+- Dashboard data/control connection.
+- Whisper/Remotion pipeline trigger.
+- Final end-to-end integration болон backup demo.
+
+Ceaser — AI & Decision Lead
+
+- YOLO inference, feature extraction.
+- Shot-quality feature, MCDA weight, tuning.
+- Candidate selection, state machine, cooldown, confidence.
+- Highlight signal болон optional active-speaker/face signal.
+- Recorded multi-camera scene дээр test хийж performance optimize хийнэ.
+- Зөвхөн тохирсон output contract өгнө; AI-г OBS/UI-тай tight coupling хийхгүй.
+- Insta360 official developer/control access авах, шалгахад тусална.
+
+Jeboy — Product, Design, Demo & Pitch Lead
+
+- User story, real production rule, сайн shot-ын шалгуур.
+- Dashboard UX, visual system.
+- Camera placement, demo staging.
+- Remotion template, title, caption, lower-third, branding direction.
+- Pitch deck, storytelling, competitor framing, sponsor story.
+- Demo director/presenter, rehearsal.
+- Final video quality болон product ойлгомжтой, polished эсэхийг шалгана.
+
+Гурвуулаа problem, track, core claim, demo story-г lock хийнэ. Гэхдээ shared task бүр нэг нэрлэсэн owner-той байна.
+
+11. BUILD ORDER
+
+Phase 1 — Lock ба preflight
+
+- Track requirement, final one-line pitch, 90-second demo-г батална.
+- Camera/mic бүрийг холбоод нэрлэнэ.
+- 20–30 минут hardware/OBS stress test хийнэ.
+- OBS scene name, camera ID, wide failsafe, manual hotkey-г lock хийнэ.
+
+Exit: stable camera/audio ingest + manual switching.
+
+Phase 2 — Interface ба basic integration
+
+- models.py, event schema, scene mapping, AI sample input/output тохирно.
+- Local FastAPI, dashboard WebSocket асаана.
+- OBS controller, manual API action хийнэ.
+- Давтаж хөгжүүлэх 3-camera test recording авна.
+
+Exit: dashboard/API-аас OBS switch хийгээд action log хадгална.
+
+Phase 3 — Perception ба scoring
+
+- Recorded/live low-resolution frame дээр YOLO ажиллуулна.
+- People, framing, centering, motion, stability, visibility feature гаргана.
+- Camera бүрийн score гаргаж dashboard дээр үзүүлнэ.
+
+Exit: usable speed-тэй stable scores.
+
+Phase 4 — Autonomous director
+
+- Ceaser decision engine-ийг Nero orchestrator-той холбоно.
+- Hysteresis, persistence, cooldown, manual override, failsafe нэмнэ.
+- OBS-ийг автоматаар switch хийж reason бүрийг log хийнэ.
+- Single presenter, moving presenter, two-person, empty frame, camera fail test хийнэ.
+
+Exit: 60–90 секундийн бүтэн scene дээр natural automatic cut.
+
+Phase 5 — Tracking ба voice
+
+- Эхлээд Link native tracking/preset ашиглана.
+- Stable болсны дараа control bridge нэмнэ.
+- Local voice command болон visible feedback нэмнэ.
+- Voice/bridge fail болсон ч manual control үргэлж ажиллана.
+
+Exit: дор хаяж “follow me”, “wide shot”, “mark this”, “autopilot” найдвартай ажиллана.
+
+Phase 6 — Memory ба automatic edit
+
+- Decision, command, transcript, highlight, recording event-үүдийг sync-тай хадгална.
+- Faster-Whisper-ээр local transcript гаргана.
+- Нэг landscape, нэг vertical Remotion template хийнэ.
+- 30–60 секунд caption-тай highlight render хийнэ.
+
+Exit: recording-ийн дараа one-click/one-command video output гарна.
+
+Phase 7 — Polish ба submission
+
+- Dashboard, explanation, branding, README, architecture diagram-г polish хийнэ.
+- Pitch deck, demo script, backup video, pre-rendered highlight бэлтгэнэ.
+- Full rehearsal болон failure recovery-г давтаж шалгана.
+- Final submission window-оос өмнө major feature freeze хийнэ.
+
+12. PRIORITY LOCK
+
+P0 — Бусдаас өмнө заавал ажиллах:
+
+- Stable 3 camera эсвэл reliable 2 live + 1 fallback input.
+- Manual scene switch болон wide failsafe.
+- Person/framing analysis.
+- Camera score болон decision engine.
+- Direct OBS WebSocket-оор stable automatic switching.
+- Link native tracking эсвэл preset demo.
+- Local FastAPI orchestration.
+- Current camera, score, mode, reason харуулдаг dashboard.
+- Program recording, decision log, бүтэн live demo, backup recording.
+
+P1 — P0-ийн дараа:
+
+- Voice command.
+- Manual override/autopilot.
+- Whisper transcript/caption.
+- Highlight marker/detection.
+- Remotion 30–60 секунд vertical highlight.
+- Native tracking-аас давсан camera-control bridge.
+
+P2 — Цаг үлдвэл:
+
+- Mouth movement + active-speaker fusion.
+- OBS MCP natural-language showcase.
+- Camera бүрийн isolated recording болон post-production recut.
+- Named/multiple subject logic.
+- Public cloud dashboard эсвэл Linux render worker.
+- Private Insta360 SDK integration.
+- Automatic camera placement suggestion.
+
+P0-ийн нэг зүйл unstable байхад P2 эхлүүлэхгүй.
+
+13. DEMO FAILURE PROTECTION
+
+- Static wide failsafe scene.
+- Чухал scene бүрийн keyboard/manual switching.
+- Manual/Autopilot toggle.
+- Feed stale/disconnected бол automatic fallback.
+- Critical path local-only; cloud шаардлагагүй.
+- Pre-recorded бүтэн demo video.
+- Pre-rendered Remotion result.
+- Voice command бүрийн backup button.
+- AI visualization fail бол real saved event timeline replay.
+- Spare cable/power болон backup camera.
+- Нэг хүн present хийхэд нөгөө хүн system health харна.
+
+Optional feature rehearsal дээр 2 удаа дараалан fail болбол live critical path-аас гаргаж, backup clip-ээр үзүүлэх эсвэл next step гэж тайлбарлана.
+
+14. FINAL 90-SECOND DEMO SCRIPT
+
+0–10 секунд: Problem — professional multi-camera production-д director, camera operator, editor хэрэгтэй боловч ихэнх creator ганцаараа ажилладаг.
+
+10–20 секунд: 3 camera feed үзүүлээд Autopilot асаана.
+
+20–40 секунд: Presenter ярьж, хөдөлнө. Dolly framing өөрчлөгдсөнийг илрүүлж, presenter-ийг дагаж, wide-аас хамгийн сайн shot руу switch хийнэ. Dashboard score болон reason харуулна.
+
+40–55 секунд: Хоёр дахь хүн орно. Dolly хурдан савлахгүйгээр wide/two-person shot руу шилжинэ.
+
+55–65 секунд: “Dolly, mark this”, “Dolly, wide shot” гэж хэлээд command confirmation болон voice/manual priority харуулна.
+
+65–75 секунд: Recording stop хийнэ. Saved decision timeline, cut бүрийн reason харуулна.
+
+75–90 секунд: Бэлэн/үүсгэсэн vertical captioned highlight-аа нээгээд ингэж дуусгана:
+
+“Dolly doesn’t just edit after the shoot. It becomes the production crew during the shoot, remembers every decision, and delivers content ready to publish.”
+
+15. MVP ACCEPTANCE CHECKLIST
+
+[ ] Camera/audio ingest stable.
+[ ] Wide failsafe болон manual control ажиллана.
+[ ] AI fake dashboard number биш, real feature/score гаргана.
+[ ] Automatic cut persistence/cooldown rule мөрдөнө.
+[ ] Bad/missing feed safe fallback үүсгэнэ.
+[ ] Link presenter-ийг track хийнэ эсвэл preset найдвартай ажиллана.
+[ ] Voice эсвэл button highlight mark хийж чадна.
+[ ] Dashboard live state болон decision reason харуулна.
+[ ] Recording болон synchronized event log хадгалагдана.
+[ ] Caption-тай нэг highlight video үзүүлж чадна.
+[ ] Internet-гүй full demo ажиллана.
+[ ] Backup video болон pre-rendered output бэлэн.
+[ ] 3 гишүүн architecture болон өөрийн contribution-оо тайлбарлаж чадна.
+
+16. FINAL PITCH POSITIONING
+
+Problem:
+Professional multi-camera video-д director, camera operator, editor хэрэгтэй. Solo creator, teacher, podcaster, small team ийм crew-ийн зардлыг дааж чаддаггүй.
+
+Solution:
+Dolly одоо байгаа camera-нуудыг автономит production crew болгож, scene-ийг ойлгон, live direct хийж, subject-ийг дагаж, cut бүрээ тайлбарлан, final content-ийг автоматаар бэлтгэнэ.
+
+Technical edge:
+Real-time multi-camera computer vision, audio context, explainable MCDA shot scoring, stable state machine, direct camera/OBS control, event memory, automated post-production бүгд нэг closed loop болж ажиллана.
+
+Why now:
+Creator-ууд хүчирхэг camera/mic-тэй болсон боловч тэдгээрийг холбож ажиллуулах intelligence layer байхгүй.
+
+Why this team:
+Jeboy бодит production болон product storytelling мэднэ. Ceaser AI decision brain хийнэ. Nero camera, OBS, backend, control, UI, editing бүгдийг ажилладаг нэг систем болгоно.
+
+17. ӨӨРЧЛӨХГҮЙ FINAL DECISION
+
+- GuardianAI эсвэл FieldVoyager биш, Dolly-г хийнэ.
+- FRAME-26 гурван хүний баг хэвээр байна.
+- Windows OBS laptop real-time production machine байна.
+- Nero backend болон complete integration-ийг эзэмшинэ.
+- Ceaser AI perception, scoring, decision logic-ийг эзэмшинэ.
+- Jeboy product, UX, demo, visual, pitch-ийг эзэмшинэ.
+- AI/backend clean Pydantic/JSON contract-аар холбогдоно.
+- Live cut-ийг direct OBS WebSocket удирдана; OBS MCP optional.
+- Link native tracking/preset нь reliable movement MVP.
+- yolo26n-pose primary; YOLOv8n fallback.
+- React dashboard primary; Gradio fallback.
+- Remotion post-production-д ашиглагдана, live switching-д биш.
+- Linux server optional; live demo түүнээс хамаарахгүй.
+- Шинэ feature-ээс P0 reliability үргэлж чухал.
+
+END OF FINAL MASTER DECISION
